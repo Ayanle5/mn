@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Snakes & Ladders: Mystery Mayhem</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:16px;font-family:Arial,sans-serif;background:#101827;color:white;text-align:center}
+h1{margin:8px 0;color:#facc15}
+p{color:#cbd5e1}
+.game{max-width:600px;margin:auto}
+.top{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:15px 0}
+button{border:0;border-radius:10px;padding:12px 15px;font-weight:bold;background:#facc15;color:#172033;cursor:pointer}
+button:disabled{opacity:.5}
+#board{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;background:#273449;padding:5px;border-radius:12px}
+.cell{aspect-ratio:1;position:relative;display:flex;align-items:center;justify-content:center;border-radius:4px;font-size:clamp(10px,2.5vw,16px);font-weight:bold;color:#172033;background:#e2e8f0}
+.cell:nth-child(even){background:#cbd5e1}
+.cell.ladder{background:#86efac}
+.cell.snake{background:#fda4af}
+.cell.mystery{background:#fde68a}
+.cell small{position:absolute;top:2px;left:3px;font-size:8px;color:#475569}
+.tokens{display:flex;gap:2px;position:absolute;bottom:2px;right:2px}
+.token{width:clamp(9px,2.5vw,15px);height:clamp(9px,2.5vw,15px);border-radius:50%;border:2px solid white;box-shadow:0 1px 3px #0008;transition:all .2s}
+.red{background:#ef4444}
+.blue{background:#3b82f6}
+.panel{margin-top:14px;padding:15px;background:#1e293b;border-radius:12px}
+#dice{font-size:45px;display:inline-block;margin:8px;transition:transform .2s}
+.rolling{animation:roll .45s ease-in-out}
+@keyframes roll{0%,100%{transform:rotate(0) scale(1)}25%{transform:rotate(20deg) scale(1.2)}75%{transform:rotate(-20deg) scale(1.2)}}
+#status{font-weight:bold;min-height:24px;margin:8px}
+#log{font-size:13px;color:#cbd5e1;min-height:20px}
+.actions{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}
+.legend{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin:12px}
+.legend span{display:flex;align-items:center;gap:5px}
+.dot{width:12px;height:12px;border-radius:3px}
+#question{font-weight:bold;color:#fde68a;margin:8px 0}
+@media(max-width:400px){body{padding:8px}.cell small{font-size:7px}#board{gap:2px;padding:3px}}
+</style>
+</head>
+<body>
+<div class="game">
+<h1>Snakes & Ladders</h1>
+<p>Mystery Mayhem — race to square 100!</p>
+<div class="top">
+<div><span class="token red" style="display:inline-block;vertical-align:middle"></span> Player 1: <b id="p1pos">1</b></div>
+<div><span class="token blue" style="display:inline-block;vertical-align:middle"></span> Player 2: <b id="p2pos">1</b></div>
+</div>
+<div id="board"></div>
+<div class="legend">
+<span><i class="dot" style="background:#86efac"></i>Ladder</span>
+<span><i class="dot" style="background:#fda4af"></i>Snake</span>
+<span><i class="dot" style="background:#fde68a"></i>Mystery square</span>
+</div>
+<div class="panel">
+<div id="turn">Player 1's turn</div>
+<div id="dice">🎲</div>
+<div class="actions">
+<button id="rollBtn" onclick="rollDice()">Roll Dice</button>
+<button onclick="resetGame()">New Game</button>
+<button id="soundBtn" onclick="toggleSound()">Sound: On</button>
+</div>
+<div id="status">Roll the dice to begin!</div>
+<div id="question"></div>
+<div id="log">Watch out for snakes and look for ladders.</div>
+</div>
+</div>
+<script>
+const board=document.getElementById("board");
+const diceEl=document.getElementById("dice");
+const statusEl=document.getElementById("status");
+const logEl=document.getElementById("log");
+const questionEl=document.getElementById("question");
+const ladders={3:22,8:30,20:41,28:55,36:57,51:67,71:91,80:99};
+const snakes={17:7,27:5, forty:0, 54:34,62:19,64:60,87:24,93:73,95:75,98:79};
+delete snakes.forty;
+const mysteries=[13,25,38,46,59,69,76,84,90,97];
+const dieFaces=["⚀","⚁","⚂","⚃","⚄","⚅"];
+let positions=[1,1],currentPlayer=0,playing=false,soundOn=true,audio;
+function createBoard(){
+ board.innerHTML="";
+ for(let n=100;n>=1;n--){
+  const cell=document.createElement("div");
+  cell.className="cell";
+  cell.id="cell"+n;
+  if(ladders[n])cell.classList.add("ladder");
+  if(snakes[n])cell.classList.add("snake");
+  if(mysteries.includes(n))cell.classList.add("mystery");
+  cell.innerHTML="<small>"+n+"</small>";
+  if(ladders[n])cell.innerHTML+="🪜";
+  else if(snakes[n])cell.innerHTML+="🐍";
+  else if(mysteries.includes(n))cell.innerHTML+="?";
+  const tokens=document.createElement("div");
+  tokens.className="tokens";
+  tokens.id="tokens"+n;
+  cell.appendChild(tokens);
+  const row=Math.floor((n-1)/10);
+  const col=(n-1)%10;
+  const visualRow=9-row;
+  const actualCol=(row%2===0)?col:9-col;
+  cell.style.gridRow=visualRow+1;
+  cell.style.gridColumn=actualCol+1;
+  board.appendChild(cell);
+ }
+ renderTokens();
+}
+function renderTokens(){
+ for(let n=1;n<=100;n++)document.getElementById("tokens"+n).innerHTML="";
+ positions.forEach((pos,i)=>{
+  const token=document.createElement("div");
+  token.className="token "+(i===0?"red":"blue");
+  document.getElementById("tokens"+pos).appendChild(token);
+ });
+ document.getElementById("p1pos").textContent=positions[0];
+ document.getElementById("p2pos").textContent=positions[1];
+}
+function playTone(freq=440,duration=.12,type="sine"){
+ if(!soundOn)return;
+ try{
+  audio=audio||new(window.AudioContext||window.webkitAudioContext)();
+  const oscillator=audio.createOscillator();
+  const gain=audio.createGain();
+  oscillator.type=type;
+  oscillator.frequency.value=freq;
+  gain.gain.setValueAtTime(.08,audio.currentTime);
+  gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+duration);
+  oscillator.connect(gain);gain.connect(audio.destination);
+  oscillator.start();oscillator.stop(audio.currentTime+duration);
+ }catch(e){}
+}
+function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
+async function moveToken(player,target){
+ const start=positions[player];
+ const direction=target>=start?1:-1;
+ for(let n=start+direction;direction>0?n<=target:n>=target;n+=direction){
+  positions[player]=n;
+  renderTokens();
+  playTone(250+n*5,.035,"triangle");
+  await sleep(100);
+ }
+}
+async function rollDice(){
+ if(playing)return;
+ playing=true;
+ document.getElementById("rollBtn").disabled=true;
+ questionEl.textContent="";
+ diceEl.classList.add("rolling");
+ let result=1;
+ for(let i=0;i<9;i++){
+  result=Math.floor(Math.random()*6)+1;
+  diceEl.textContent=dieFaces[result-1];
+  await sleep(65);
+ }
+ diceEl.classList.remove("rolling");
+ result=Math.floor(Math.random()*6)+1;
+ diceEl.textContent=dieFaces[result-1];
+ playTone(500,.15);
+ const player=currentPlayer;
+ const old=positions[player];
+ let target=old+result;
+ statusEl.textContent="Player "+(player+1)+" rolled "+result+".";
+ await sleep(250);
+ if(target>100){
+  logEl.textContent="You need the exact number to reach 100.";
+  target=old;
+ }else{
+  await moveToken(player,target);
+  if(ladders[target]){
+   statusEl.textContent="A ladder! Climb up!";
+   playTone(700,.2);
+   await sleep(350);
+   await moveToken(player,ladders[target]);
+   logEl.textContent="Player "+(player+1)+" climbed to "+ladders[target]+"!";
+  }else if(snakes[target]){
+   statusEl.textContent="Oh no! A snake!";
+   playTone(180,.35,"sawtooth");
+   await sleep(350);
+   await moveToken(player,snakes[target]);
+   logEl.textContent="Player "+(player+1)+" slid down to "+snakes[target]+".";
+  }else if(mysteries.includes(target)){
+   await mysteryEvent(player,target);
+  }
+ }
+ if(positions[player]===100){
+  statusEl.textContent="Player "+(player+1)+" wins!";
+  logEl.textContent="Congratulations! You reached square 100!";
+  playTone(660,.2);await sleep(120);playTone(880,.3);
+  questionEl.textContent="🏆 VICTORY!";
+  playing=false;
+  return;
+ }
+ currentPlayer=1-currentPlayer;
+ document.getElementById("turn").textContent="Player "+(currentPlayer+1)+"'s turn";
+ playing=false;
+ document.getElementById("rollBtn").disabled=false;
+}
+async function mysteryEvent(player,square){
+ const events=[
+  {text:"Lucky boost! Move forward 5 squares.",move:5},
+  {text:"Bad luck! Move back 3 squares.",move:-3},
+  {text:"Extra turn! You get to roll again.",extra:true},
+  {text:"Shortcut! Move forward 2 squares.",move:2},
+  {text:"Slippery ground! Move back 5 squares.",move:-5},
+  {text:"Nothing happens. Keep going!",move:0}
+ ];
+ const event=events[Math.floor(Math.random()*events.length)];
+ statusEl.textContent="Mystery square!";
+ questionEl.textContent=event.text;
+ playTone(800,.18,"sine");
+ await sleep(900);
+ if(event.move){
+  const target=Math.max(1,Math.min(100,positions[player]+event.move));
+  await moveToken(player,target);
+  logEl.textContent="Mystery effect: "+positions[player]+".";
+ }
+ if(positions[player]===100)return;
+ if(event.extra){
+  statusEl.textContent="Player "+(player+1)+" gets another turn!";
+  logEl.textContent="Roll again!";
+  return;
+ }
+}
+function resetGame(){
+ positions=[1,1];currentPlayer=0;playing=false;
+ document.getElementById("rollBtn").disabled=false;
+ document.getElementById("turn").textContent="Player 1's turn";
+ diceEl.textContent="🎲";
+ statusEl.textContent="Roll the dice to begin!";
+ logEl.textContent="Watch out for snakes and look for ladders.";
+ questionEl.textContent="";
+ renderTokens();
+}
+function toggleSound(){
+ soundOn=!soundOn;
+ document.getElementById("soundBtn").textContent="Sound: "+(soundOn?"On":"Off");
+ if(soundOn)playTone(500,.12);
+}
+createBoard();
+</script>
+</body>
+</html>
